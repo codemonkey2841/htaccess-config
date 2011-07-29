@@ -1,0 +1,161 @@
+#!/usr/bin/perl -t
+
+######################
+#
+# Web Site Password v. 1.3
+# Last Revision: 2009/04/29 14:45:35
+# Revision Author: Adrian Hannah
+#
+# This script password protects files using the .htaccess and .htpasswd files 
+#  in the current directory.
+#
+######################
+
+use strict;
+use constant HTACCESS => ".htaccess";
+use constant HTPASSWD => ".htpasswd";
+
+# Initial Stuff
+
+local $ENV{PATH} = "/bin";
+my $filelist     = "";
+
+$ENV{PWD} =~ m/(.*)/xms;
+my $pwd = $1;
+
+my $htaccess_file =  $pwd . "/" . HTACCESS;
+my $htpasswd_file =  $pwd . "/" . HTPASSWD;
+my $base_data     = "AuthName \"Authorization Required\"\n"
+                   . "AuthType Basic\n"
+                   . "AuthUserFile " . $htpasswd_file . "\n"
+                   . "AuthGroupFile /dev/null\n";
+my $htaccess_data = "";
+my $htpasswd_data = "";
+
+# If files already exist, give the user the option of removing .htaccess and 
+#  .htpasswd files or simply modifying them
+print "This command allows you to either create, modify, or completely\n";
+print "remove website permissions for a website to password protect it.\n";
+print "You MUST run this command from the directory containing the web\n";
+print "page(s) you would like to protect. Would you like to:\n";
+print "(1) Create/Modify Permissions\n";
+print "(2) Remove Permissions\n";
+print "(3) Cancel\n";
+print ": ";
+my $choice = <STDIN>;
+$choice =~ m/^(\d*)/xms;
+$choice = $1;
+
+if( $choice eq "3" ) {
+   exit;
+} elsif( $choice eq "2" ) {
+   if( !(-e $htaccess_file || -e $htpasswd_file) ) {
+      print "Neither an .htaccess or .htpasswd file have been found in the\n"; 
+      print "current directory.  Please switch to a directory with these\n";
+      print "permissions files and re-run this command.\n";
+      exit;
+   }
+   print "The following file(s) will be removed:\n";
+   if( -e $htaccess_file ) {
+      print $htaccess_file . "\n";
+   }
+   if( -e $htpasswd_file ) {
+      print $htpasswd_file . "\n";
+   }
+   print "Are you sure you want them deleted (y/n)?: ";
+   my $confirm = <STDIN>;
+   $confirm =~ m/^([y|n])/xms;
+   $confirm = $1;
+   if ($confirm eq "y") {
+      if( -e $htaccess_file ) {
+         unlink($htaccess_file) or die("Could not remove $htaccess_file");
+      }
+      if( -e $htpasswd_file ) {
+         unlink($htpasswd_file) or die("Could not remove $htpasswd_file");
+      }
+      print "Permissions removed successfully.\n";
+   } else {
+      print "Permissions were NOT removed.\n";
+   }
+   exit;
+}
+
+# Make sure that an .htaccess file doesn't already exist in the current 
+#  directory 
+if( -e $htaccess_file || -e $htpasswd_file ) {
+   print "Warning: Permissions (through an .htaccess and/or .htpasswd file)\n";
+   print "have already been set for this directory or files located in the \n";
+   print "current directory - should I overwrite them? (y/n): ";
+   my $confirm = <STDIN>;
+   $confirm =~ m/^([y|n])/xms;
+   $confirm = $1;
+   if( $confirm ne "y" ) {
+      print "Exiting preserving existing permissions.\n";
+      exit;
+   }
+}
+
+# Now we'll see what content the user would actually like to protect
+print "Individually list the files you would like to protect, each seperated\n";
+print "by a *comma*.  Note that filenames with spaces cannot be used!\n";
+print "If you would like to protect the entire directory, simply press\n";
+print "[Return]\n";
+print ": ";
+
+chomp($filelist = <STDIN>);
+$filelist =~ m/(\S*)/xms;
+$filelist = $1;
+$filelist =~s/,/\$|^/g;
+
+if( length($filelist) ne "0" ) {
+   $htaccess_data = $base_data . '<FilesMatch ^' . $filelist 
+      . '$>' . "\n" . 'require valid-user' . "\n" . '</FilesMatch>' . "\n";
+} else {
+   $htaccess_data = $base_data . "require valid-user\n";
+}
+
+# Now we'll actually get a username and a password file to dump into the 
+#  .htpasswd file
+print "We will now establish login information that will be used when users\n";
+print "want to access the files from the web.  For security reasons, do NOT \n";
+print "use your MTU login or other (such as bank) password.\n";
+print "Please enter a username: ";
+chomp(my $username = <STDIN>);
+$username =~ m/^([\w|\d]+)/xms;
+$username = $1;
+print "Please enter a password: ";
+chomp(my $password = <STDIN>);
+$password =~ m/^(.*)/xms;
+$password = $1;
+
+my $encryptedpassword = crypt($password, "Qx");
+$htpasswd_data = $username . ":" . $encryptedpassword . "\n"; 
+
+# Write the actual data to the files
+open( ACCESSFILE, ">", $htaccess_file )
+   or die "Cannot open $htaccess_file!\n";
+print ACCESSFILE $htaccess_data;
+close(ACCESSFILE);
+
+open( PASSWDFILE, ">" . $htpasswd_file )
+   or die "Cannot open $htpasswd_file!\n";
+print PASSWDFILE $htpasswd_data;
+close(PASSWDFILE);
+
+# Make sure that Apache can read the .htaccess and .htpasswd files 
+# as the default umask for the user may prevent the file from being
+# written with such permissions.
+my $perm_error=0;
+if( system("chmod 644 \"$htaccess_file\"") ne "0" ) {
+   print "Warning: Could not set file permissions for $htaccess_file.\n";
+   $perm_error = 1;
+}
+if( system("chmod 644 \"$htpasswd_file\"") ne "0" ) {
+   print "Warning: Could not set file permissions for $htpasswd_file.\n";
+   $perm_error = 1;
+}
+if( $perm_error ) {
+   print "Website protection may not work correctly!\n";
+}
+
+print "Password protection enabled.\n";
